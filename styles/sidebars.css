@@ -1,0 +1,28 @@
+.folder-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.options-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.options-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.folder-header {
+  padding: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 16px;
+} 
