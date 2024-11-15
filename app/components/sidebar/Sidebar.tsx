@@ -1,13 +1,16 @@
 'use client'
 
 import { useState, ReactNode, forwardRef, ForwardedRef, useImperativeHandle, useEffect, useRef } from 'react'
-import { Home, Users, HelpCircle, User, Folder, Plus, Mouse, Camera, Eraser, TestTube, Trash, FileBox, Send, Inbox, Edit2, Brain, LogOut } from 'lucide-react'
+import { Home, Users, HelpCircle, User, Folder, Plus, Mouse, Camera, Eraser, TestTube, Trash, FileBox, Send, Inbox, Edit2, Brain, LogOut, Search, PenTool, BookOpen, Book, Globe } from 'lucide-react'
 import { FolderType } from '../../hooks/useFolders'
 import { useNotification } from '@/app/contexts/NotificationContext';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useSession } from 'next-auth/react';
 import { getFolders, createFolder } from '@/app/actions/folders';
-import type { Folder as FolderFromTypes } from '@/app/types';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { Topic } from '@/app/types';
+import { SpaceType } from '@/app/types/topics';
+import { CreateTopicDialog } from '../topics/CreateTopicDialog.tsx';
 
 interface SidebarButtonProps {
   icon: ReactNode
@@ -22,6 +25,8 @@ interface SidebarButtonProps {
 interface SidebarProps {
   onCreateFolder: () => void;
   onFolderSelect: (folder: FolderType | null, isMind?: boolean) => void;
+  isExtended?: boolean;
+  onExtendedChange?: (extended: boolean) => void;
 }
 
 // Icon components mapping
@@ -68,19 +73,8 @@ interface AccountMenuProps {
   onLogout: () => void;
 }
 
-// Update StrictFolder to match FolderType
-interface StrictFolder extends FolderFromTypes {
-  _id: string;
-  name: string;
-  theme: string;  // Required
-  icon: string;   // Required
-  userId: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarProps, ref: ForwardedRef<SidebarRef>) => {
-  const [folders, setFolders] = useState<StrictFolder[]>([]);
+export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect, isExtended, onExtendedChange }: SidebarProps, ref: ForwardedRef<SidebarRef>) => {
+  const [folders, setFolders] = useState<FolderType[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -98,6 +92,11 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
   const { showNotification } = useNotification();
   const [accountMenu, setAccountMenu] = useState<{ x: number; y: number } | null>(null);
   const { logout } = useAuth();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [isCreateNoteOpen, setIsCreateNoteOpen] = useState(false);
+  const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
+  const [isHubActive, setIsHubActive] = useState(true);
 
   useEffect(() => {
     setIsClient(true);
@@ -106,20 +105,15 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
   useEffect(() => {
     if (activeButtonRef.current) {
       const buttonRect = activeButtonRef.current.getBoundingClientRect();
-      setIndicatorOffset(buttonRect.top);
+      const buttonCenter = buttonRect.top + (buttonRect.height / 2);
+      setIndicatorOffset(buttonCenter);
     }
   }, [activeFolder]);
 
   const refreshFolders = async () => {
     try {
       const fetchedFolders = await getFolders();
-      // Convert fetched folders to StrictFolder type
-      const strictFolders: StrictFolder[] = fetchedFolders.map(folder => ({
-        ...folder,
-        theme: folder.theme || 'default',
-        icon: folder.icon || 'Folder'
-      }));
-      setFolders(strictFolders);
+      setFolders(fetchedFolders);
     } catch (err) {
       console.error('Error refreshing folders:', err);
       showNotification('error', 'Failed to refresh folders');
@@ -179,7 +173,13 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
 
   const handleFolderClick = (folder: FolderType | null, isMind: boolean = false) => {
     setActiveFolder(folder ? folder._id : isMind ? MIND_FOLDER_ID : null);
+    setIsHubActive(true);
+    onExtendedChange?.(!!(folder && !isMind));
     onFolderSelect(folder, isMind);
+    
+    if (folder) {
+      fetchTopics(folder._id);
+    }
   };
 
   const handleAccountClick = (e: React.MouseEvent) => {
@@ -201,13 +201,7 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
       
       try {
         const newFolder = await createFolder(folderData);
-        // Convert to StrictFolder
-        const strictFolder: StrictFolder = {
-          ...newFolder,
-          theme: newFolder.theme || 'default',
-          icon: newFolder.icon || 'Folder'
-        };
-        setFolders(prevFolders => [...prevFolders, strictFolder]);
+        setFolders(prevFolders => [...prevFolders, newFolder]);
         setHasError(false);
         setErrorMessage('');
       } catch (err) {
@@ -224,13 +218,7 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
       
       try {
         const fetchedFolders = await getFolders();
-        // Convert folders to StrictFolder type with default values
-        const strictFolders = fetchedFolders.map(folder => ({
-          ...folder,
-          theme: folder.theme || 'default',  // Provide default theme
-          icon: folder.icon || 'Folder'      // Provide default icon
-        }));
-        setFolders(strictFolders);
+        setFolders(fetchedFolders);
         setHasError(false);
         setErrorMessage('');
       } catch (err) {
@@ -245,9 +233,79 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
     fetchFolders();
   }, [isClient]);
 
+  const getSpaceIcon = (type: SpaceType) => {
+    switch (type) {
+      case 'notes':
+        return <PenTool size={20} />;
+      case 'quiz':
+        return <Brain size={20} />;
+      case 'flashcards':
+        return <BookOpen size={20} />;
+      default:
+        return <Book size={20} />;
+    }
+  };
+
+  // Replace the nested folder rendering with a simple map
+  const renderFolders = () => (
+    <div className="space-y-1">
+      {folders.map(folder => {
+        const IconComponent = iconComponents[folder.icon as keyof typeof iconComponents] || Folder;
+        const folderAsType: FolderType = {
+          _id: folder._id,
+          name: folder.name,
+          theme: folder.theme,
+          icon: folder.icon,
+          userId: folder.userId
+        };
+
+        return (
+          <div key={folder._id}>
+            {editingFolder?._id === folder._id ? (
+              <FolderEditInput
+                folder={folderAsType}
+                onSave={handleFolderEdit}
+                onCancel={() => setEditingFolder(null)}
+              />
+            ) : (
+              <SidebarButton
+                ref={activeFolder === folder._id ? activeButtonRef : null}
+                icon={<IconComponent size={20} />}
+                text={folder.name}
+                showTooltip
+                active={activeFolder === folder._id}
+                onClick={() => handleFolderClick(folderAsType)}
+                onContextMenu={(e) => handleContextMenu(e, folderAsType)}
+                color={themeColors[folder.theme as keyof typeof themeColors]}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // Fetch topics for a folder
+  const fetchTopics = async (folderId: string) => {
+    try {
+      const response = await fetch(`/api/topics?folderId=${folderId}`);
+      if (!response.ok) throw new Error('Failed to fetch topics');
+      const data = await response.json();
+      setTopics(data);
+    } catch (error) {
+      console.error('Error fetching topics:', error);
+    }
+  };
+
+  const handleTopicClick = (topic: Topic) => {
+    setSelectedTopic(topic);
+    // You might want to add a prop for handling topic selection
+    // onTopicSelect?.(topic);
+  };
+
   if (!isClient || loading) {
     return (
-      <div className="w-16 bg-[#1A1A1A] border-r border-[#2A2A2A] py-4 flex flex-col items-center relative">
+      <div className="fixed top-0 left-0 w-16 h-screen bg-[#1A1A1A] border-r border-[#2A2A2A] py-4 flex flex-col items-center z-10">
         <div className="flex items-center justify-center h-full">
           <span className="text-gray-400">Loading...</span>
         </div>
@@ -257,7 +315,7 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
 
   if (hasError) {
     return (
-      <div className="w-16 bg-[#1A1A1A] border-r border-[#2A2A2A] py-4 flex flex-col items-center relative">
+      <div className="fixed top-0 left-0 w-16 h-screen bg-[#1A1A1A] border-r border-[#2A2A2A] py-4 flex flex-col items-center z-10">
         <div className="text-red-500 text-sm px-2">
           {errorMessage}
         </div>
@@ -266,31 +324,32 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
   }
 
   return (
-    <div className="w-16 bg-[#1A1A1A] border-r border-[#2A2A2A] py-4 flex flex-col items-center relative sidebar-container">
-      <div 
-        className="absolute right-0 w-0.5 h-4 bg-white rounded-full mr-[2.75px] transition-all duration-300 ease-in-out"
-        style={{ 
-          top: `${indicatorOffset}px`,
-          transform: 'translateY(-50%)',
-          opacity: activeFolder !== null || activeFolder === -1 ? 1 : 0,
-        }}
-      />
-
-      <nav className="w-full space-y-2 px-2">
-        <SidebarButton 
-          ref={activeFolder === null ? activeButtonRef : null}
-          icon={<Home size={20} />} 
-          text="Home" 
-          active={activeFolder === null}
-          showTooltip
-          onClick={() => handleFolderClick(null)}
+    <>
+      {/* Main Sidebar - Always visible */}
+      <div className="fixed top-0 left-0 w-16 h-screen bg-[#1A1A1A] border-r border-[#2A2A2A] py-1 flex flex-col items-center z-10">
+        <div 
+          className="absolute right-0 w-0.5 h-4 bg-white rounded-full mr-[2.75px] transition-all duration-300 ease-in-out"
+          style={{ 
+            top: `${indicatorOffset}px`,
+            transform: 'translateY(-50%)',
+            opacity: activeFolder !== null || activeFolder === -1 ? 1 : 0,
+          }}
         />
-      </nav>
 
-      <div className="w-8 h-px bg-[#2A2A2A] my-4" />
+        <nav className="w-full space-y-2 px-2">
+          <SidebarButton 
+            ref={activeFolder === null ? activeButtonRef : null}
+            icon={<Home size={20} />} 
+            text="Home" 
+            active={activeFolder === null}
+            showTooltip
+            onClick={() => handleFolderClick(null)}
+          />
+        </nav>
 
-      <div className="w-full">
-        <div className="space-y-1 px-2">
+        <div className="w-8 h-px bg-[#2A2A2A] my-4" />
+
+        <div className="w-full px-2 mb-4">
           <SidebarButton
             ref={activeFolder === MIND_FOLDER_ID ? activeButtonRef : null}
             icon={<Brain size={20} />}
@@ -300,62 +359,129 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
             onClick={() => handleFolderClick(null, true)}
             color="#f43f5e"
           />
-          
-          {folders.map((folder) => {
-            const IconComponent = iconComponents[folder.icon as keyof typeof iconComponents] || Folder;
-            // Convert StrictFolder to FolderType when needed
-            const folderAsType: FolderType = {
-              _id: folder._id,
-              name: folder.name,
-              theme: folder.theme,
-              icon: folder.icon,
-              userId: folder.userId
-            };
-            
-            return (
-              <div key={folder._id} className="relative">
-                {editingFolder?._id === folder._id ? (
-                  <FolderEditInput
-                    folder={folderAsType}
-                    onSave={handleFolderEdit}
-                    onCancel={() => setEditingFolder(null)}
-                  />
-                ) : (
-                  <SidebarButton
-                    ref={activeFolder === folder._id ? activeButtonRef : null}
-                    icon={<IconComponent size={20} />}
-                    text={folder.name}
-                    showTooltip
-                    active={activeFolder === folder._id}
-                    onClick={() => handleFolderClick(folderAsType)}
-                    onContextMenu={(e) => handleContextMenu(e, folderAsType)}
-                    color={themeColors[folder.theme as keyof typeof themeColors]}
-                  />
-                )}
-              </div>
-            );
-          })}
-          <SidebarButton
-            icon={<Plus size={20} />}
-            text="New Folder"
-            showTooltip
-            onClick={onCreateFolder}
+        </div>
+
+        <div className="w-8 h-px bg-[#2A2A2A] mb-4" />
+
+        <div className="w-full flex-1 overflow-y-auto">
+          <div className="space-y-1 px-2">
+            {renderFolders()}
+            <SidebarButton
+              icon={<Plus size={20} />}
+              text="New Folder"
+              showTooltip
+              onClick={onCreateFolder}
+            />
+          </div>
+        </div>
+
+        <div className="mt-auto space-y-2 w-full px-2">
+          <SidebarButton icon={<Users size={20} />} text="Invite friends" showTooltip />
+          <SidebarButton icon={<HelpCircle size={20} />} text="Support" showTooltip />
+          <SidebarButton 
+            icon={<User size={20} />} 
+            text="Account" 
+            showTooltip 
+            onClick={handleAccountClick}
+            active={!!accountMenu}
           />
         </div>
       </div>
 
-      <div className="mt-auto space-y-2 w-full px-2">
-        <SidebarButton icon={<Users size={20} />} text="Invite friends" showTooltip />
-        <SidebarButton icon={<HelpCircle size={20} />} text="Support" showTooltip />
-        <SidebarButton 
-          icon={<User size={20} />} 
-          text="Account" 
-          showTooltip 
-          onClick={handleAccountClick}
-          active={!!accountMenu}
-        />
-      </div>
+      {/* Extended Sidebar Panel */}
+      {isExtended && (
+        <div 
+          className="fixed top-0 left-16 w-[300px] h-screen bg-[#1A1A1A] border-r border-[#2A2A2A] p-4 overflow-y-auto z-10"
+          style={{ 
+            transition: 'transform 0.3s ease-in-out',
+            transform: isExtended ? 'translateX(0)' : 'translateX(-100%)'
+          }}
+        >
+          {/* Search Bar */}
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+            <input
+              type="text"
+              placeholder="Search topics..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-[#2A2A2A] text-white pl-10 pr-4 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
 
+          {/* Hub Tab */}
+          <div 
+            onClick={() => {
+              setActiveFolder(null);
+              setIsHubActive(true);
+              onExtendedChange?.(true);
+              onFolderSelect(null, false);
+            }}
+            className={`
+              p-3 mb-4 bg-[#2A2A2A] rounded-lg hover:bg-[#3A3A3A] 
+              transition-colors cursor-pointer
+              ${isHubActive ? 'ring-2 ring-blue-500' : ''}
+            `}
+          >
+            <div className="flex items-center gap-3">
+              <Globe size={20} className="text-blue-500" />
+              <div>
+                <h3 className="text-white text-sm font-medium">Study Hub</h3>
+                <p className="text-gray-400 text-xs">Discover and share resources</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Separator Line */}
+          <div className="h-px bg-[#2A2A2A] my-4" />
+
+          {/* Topics List */}
+          <div className="space-y-2">
+            {topics
+              .filter(topic => topic.title.toLowerCase().includes(searchTerm.toLowerCase()))
+              .map(topic => (
+                <div
+                  key={topic._id}
+                  onClick={() => handleTopicClick(topic)}
+                  className={`
+                    p-3 bg-[#2A2A2A] rounded-lg hover:bg-[#3A3A3A] 
+                    transition-colors cursor-pointer
+                    ${selectedTopic?._id === topic._id ? 'ring-2 ring-blue-500' : ''}
+                  `}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-white text-sm font-medium">{topic.title}</h3>
+                      <p className="text-gray-400 text-xs mt-1">{topic.type}</p>
+                    </div>
+                    {getSpaceIcon(topic.type as SpaceType)}
+                  </div>
+                  <div className="mt-2 text-xs text-gray-500">
+                    {topic.type === 'notes' && `Last edited: ${new Date(topic.updatedAt).toLocaleDateString()}`}
+                    {topic.type === 'quiz' && 'Quiz'}
+                    {topic.type === 'flashcards' && 'Flashcards'}
+                  </div>
+                </div>
+              ))}
+            {topics.length === 0 && (
+              <div className="text-center text-gray-400 py-8">
+                No topics yet
+              </div>
+            )}
+          </div>
+
+          {/* Create Topic Button */}
+          <button
+            onClick={() => setIsCreateNoteOpen(true)}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus size={20} />
+            New Topic
+          </button>
+        </div>
+      )}
+
+      {/* Context Menu and Account Menu remain the same */}
       {contextMenu && (
         <FolderContextMenu
           position={{ x: contextMenu.x, y: contextMenu.y }}
@@ -378,8 +504,40 @@ export const Sidebar = forwardRef(({ onCreateFolder, onFolderSelect }: SidebarPr
           onLogout={handleLogout}
         />
       )}
-    </div>
-  )
+
+      {activeFolder && (
+        <CreateTopicDialog 
+          isOpen={isCreateNoteOpen}
+          onClose={() => setIsCreateNoteOpen(false)}
+          onSubmit={async (noteData) => {
+            try {
+              await fetch('/api/topics', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  type: 'notes',
+                  title: noteData.title,
+                  folderId: activeFolder || undefined,
+                  content: {
+                    text: '',
+                    lastEdited: new Date(),
+                  },
+                }),
+              });
+              setIsCreateNoteOpen(false);
+              if (activeFolder) {
+                fetchTopics(activeFolder);
+              }
+            } catch (err) {
+              console.error('Error creating note:', err);
+            }
+          }}
+        />
+      )}
+    </>
+  );
 });
 
 Sidebar.displayName = 'Sidebar';
@@ -394,24 +552,55 @@ const SidebarButton = forwardRef<HTMLButtonElement, SidebarButtonProps>(({
   onContextMenu
 }, ref) => {
   return (
-    <button
-      ref={ref}
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      className={`w-full flex items-center justify-center p-2 rounded-lg group relative
-        ${active 
-          ? 'bg-[#2A2A2A] text-white' 
-          : 'text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
-        }`}
-      style={color ? { color } : undefined}
-    >
-      {icon}
-      {showTooltip && text && (
-        <span className="absolute left-full ml-2 px-2 py-1 bg-[#2A2A2A] text-white text-xs rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-[9999]">
-          {text}
-        </span>
-      )}
-    </button>
+    <Tooltip.Provider>
+      <Tooltip.Root delayDuration={300}>
+        <Tooltip.Trigger asChild>
+          <button
+            ref={ref}
+            onClick={onClick}
+            onContextMenu={onContextMenu}
+            className={`
+              w-full flex items-center justify-center p-2 rounded-lg
+              transition-all duration-200 ease-in-out
+              ${active 
+                ? 'bg-[#2A2A2A] text-white scale-105' 
+                : 'text-gray-400 hover:bg-[#2A2A2A] hover:text-white hover:scale-105'
+              }
+              hover:shadow-lg
+              active:scale-95
+            `}
+            style={color ? { color } : undefined}
+          >
+            {icon}
+          </button>
+        </Tooltip.Trigger>
+        {showTooltip && text && (
+          <Tooltip.Portal>
+            <Tooltip.Content
+              className="
+                px-3 py-2 
+                bg-[#2A2A2A] 
+                text-white text-sm 
+                rounded-md 
+                shadow-lg
+                select-none
+                animate-in fade-in-50 
+                data-[state=closed]:animate-out 
+                data-[state=closed]:fade-out-0 
+                data-[state=closed]:zoom-out-95
+                data-[side=bottom]:slide-in-from-top-2 
+                data-[side=top]:slide-in-from-bottom-2
+              "
+              side="right"
+              sideOffset={5}
+            >
+              {text}
+              <Tooltip.Arrow className="fill-[#2A2A2A]" />
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        )}
+      </Tooltip.Root>
+    </Tooltip.Provider>
   );
 });
 

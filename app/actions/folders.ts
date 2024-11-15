@@ -1,83 +1,24 @@
 'use server'
 
-import { connectToDatabase } from '../lib/mongodb';
+import { connectToDatabase } from '@/app/lib/mongodb';
+import { Folder } from '@/app/types';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../lib/auth';
-import { ObjectId, WithId, Document } from 'mongodb';
-import { revalidatePath } from 'next/cache';
-import { MongoDBFolder } from '../types/mongodb';
+import { authOptions } from '@/app/lib/auth';
+import { ObjectId } from 'mongodb';
 
-// Types
-interface FolderUpdateInput {
-  id: string;
-  name?: string;
-  theme?: string;
-  icon?: string;
-}
-
-interface Folder {
-  _id: string;
-  name: string;
-  theme?: string;
-  icon?: string;
-  userId: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface CreateFolderData {
-  name: string;
-  theme?: string;
-  icon?: string;
-}
-
-// Helper function to convert ObjectId to string
-const convertFolder = (folder: MongoDBFolder): Folder => ({
-  _id: folder._id.toString(),
-  name: folder.name,
-  theme: folder.theme,
-  icon: folder.icon,
-  userId: folder.userId,
-  createdAt: folder.createdAt,
-  updatedAt: folder.updatedAt,
-});
-
-// Get all folders for current user
-export async function getFolders(): Promise<Folder[]> {
+export async function createFolder(data: { name: string; theme: string; icon: string }) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) {
-      throw new Error("Unauthorized");
-    }
-    
-    const userId = session.user.id;
-    const { db } = await connectToDatabase();
-    
-    const userFolders = await db.collection('folders').find({ 
-      userId: userId 
-    }).toArray();
-    
-    return userFolders.map((doc: WithId<Document>) => 
-      convertFolder(doc as unknown as MongoDBFolder)
-    );
-  } catch (error) {
-    console.error('Error fetching folders:', error);
-    throw new Error('Failed to fetch folders');
-  }
-}
-
-// Create new folder
-export async function createFolder(data: CreateFolderData): Promise<Folder> {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      throw new Error("Unauthorized");
+    if (!session?.user?.id) {
+      throw new Error('Unauthorized');
     }
 
     const { db } = await connectToDatabase();
 
     const folder = {
-      ...data,
+      name: data.name,
+      theme: data.theme,
+      icon: data.icon,
       userId: session.user.id,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -85,81 +26,87 @@ export async function createFolder(data: CreateFolderData): Promise<Folder> {
 
     const result = await db.collection('folders').insertOne(folder);
     
-    const newFolder: Folder = convertFolder({
-      _id: result.insertedId,
-      ...folder
-    });
+    const newFolder: Folder = {
+      _id: result.insertedId.toString(),
+      name: folder.name,
+      theme: folder.theme,
+      icon: folder.icon,
+      userId: folder.userId,
+      createdAt: folder.createdAt.toISOString(),
+      updatedAt: folder.updatedAt.toISOString()
+    };
 
-    revalidatePath('/folders');
     return newFolder;
   } catch (error) {
-    console.error('Error creating folder:', error);
-    throw new Error('Failed to create folder');
+    console.error('Error in createFolder:', error);
+    throw error;
   }
 }
 
-// Delete folder
-export async function deleteFolder(id: string) {
+export async function getFolders(): Promise<Folder[]> {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) {
-      throw new Error("Unauthorized");
+    if (!session?.user?.id) {
+      throw new Error('Unauthorized');
     }
 
     const { db } = await connectToDatabase();
+    const folders = await db.collection('folders')
+      .find({ userId: session.user.id })
+      .sort({ name: 1 })
+      .toArray();
 
-    // Verify ownership
-    const folder = await db.collection('folders').findOne({
-      _id: new ObjectId(id),
-      userId: session.user.id
-    });
+    return folders.map(folder => ({
+      _id: folder._id.toString(),
+      name: folder.name,
+      theme: folder.theme || 'default',
+      icon: folder.icon || 'Folder',
+      userId: folder.userId,
+      createdAt: folder.createdAt.toISOString(),
+      updatedAt: folder.updatedAt.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error in getFolders:', error);
+    throw error;
+  }
+}
 
-    if (!folder) {
-      throw new Error('Folder not found or unauthorized');
+export async function deleteFolder(id: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      throw new Error('Unauthorized');
     }
 
+    const { db } = await connectToDatabase();
     await db.collection('folders').deleteOne({
       _id: new ObjectId(id),
       userId: session.user.id
     });
 
-    revalidatePath('/folders');
     return { success: true };
   } catch (error) {
-    console.error('Error deleting folder:', error);
-    throw new Error('Failed to delete folder');
+    console.error('Error in deleteFolder:', error);
+    throw error;
   }
 }
 
-// Update folder
-export async function updateFolder({ id, ...updateData }: FolderUpdateInput) {
+export async function updateFolder(id: string, data: Partial<Folder>) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) {
-      throw new Error("Unauthorized");
+    if (!session?.user?.id) {
+      throw new Error('Unauthorized');
     }
 
     const { db } = await connectToDatabase();
-
-    // Verify ownership
-    const folder = await db.collection('folders').findOne({
-      _id: new ObjectId(id),
-      userId: session.user.id
-    });
-
-    if (!folder) {
-      throw new Error('Folder not found or unauthorized');
-    }
-
     await db.collection('folders').updateOne(
       { _id: new ObjectId(id), userId: session.user.id },
-      { $set: { ...updateData, updatedAt: new Date() } }
+      { $set: { ...data, updatedAt: new Date() } }
     );
 
-    revalidatePath('/folders');
     return { success: true };
   } catch (error) {
-    console.error('Error updating folder:', error);
-    throw new Error('Failed to update folder');
+    console.error('Error in updateFolder:', error);
+    throw error;
   }
 } 

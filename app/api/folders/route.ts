@@ -2,33 +2,37 @@ import { NextResponse } from 'next/server';
 import { connectToDatabase } from '../../lib/mongodb';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../lib/auth';
-import { ObjectId, WithId, Document } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { Folder } from '../../types';
-import { MongoDBFolder } from '../../types/mongodb';
 
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || !session.user || !session.user.id) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { db } = await connectToDatabase();
     const userFolders = await db.collection('folders')
       .find({ userId: session.user.id })
+      .sort({ name: 1 })
       .toArray();
 
-    const formattedFolders: Folder[] = userFolders.map((doc: WithId<Document>) => {
-      const mongoFolder = doc as unknown as MongoDBFolder;
-      return {
-        ...mongoFolder,
-        _id: mongoFolder._id.toString(),
-      };
-    });
+    const formattedFolders = userFolders.map(folder => ({
+      _id: folder._id.toString(),
+      name: folder.name,
+      theme: folder.theme || 'default',
+      icon: folder.icon || 'Folder',
+      userId: folder.userId,
+      createdAt: folder.createdAt.toISOString(),
+      updatedAt: folder.updatedAt.toISOString()
+    }));
 
     return NextResponse.json(formattedFolders);
   } catch (error) {
-    console.error('Error in GET /api/folders:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error in GET /api/folders:', error);
+    }
     return NextResponse.json({ error: 'Failed to fetch folders' }, { status: 500 });
   }
 }
@@ -36,48 +40,37 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    console.log('POST /api/folders - Session:', {
-      id: session?.user?.id,
-      name: session?.user?.name,
-      email: session?.user?.email
-    });
-
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { name, theme, icon } = await req.json();
+    const data = await req.json();
     const { db } = await connectToDatabase();
 
-    // Create folder with explicit userId
     const folder = {
-      name,
-      theme,
-      icon,
+      name: data.name,
+      theme: data.theme,
+      icon: data.icon,
       userId: session.user.id,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    console.log('Creating folder with data:', folder);
-
     const result = await db.collection('folders').insertOne(folder);
     
-    // Return the complete folder object with _id
-    const newFolder = {
-      _id: result.insertedId,
-      ...folder
+    const newFolder: Folder = {
+      _id: result.insertedId.toString(),
+      name: folder.name,
+      theme: folder.theme,
+      icon: folder.icon,
+      userId: folder.userId,
+      createdAt: folder.createdAt.toISOString(),
+      updatedAt: folder.updatedAt.toISOString()
     };
-    
-    console.log('Created folder:', newFolder);
 
-    // Verify folder was saved
-    const savedFolder = await db.collection('folders').findOne({ _id: result.insertedId });
-    console.log('Verified saved folder:', savedFolder);
-
-    return NextResponse.json(newFolder, { status: 201 });
+    return NextResponse.json(newFolder);
   } catch (error) {
-    console.error('Error creating folder:', error);
+    console.error('Error in POST /api/folders:', error);
     return NextResponse.json({ error: 'Failed to create folder' }, { status: 500 });
   }
 }

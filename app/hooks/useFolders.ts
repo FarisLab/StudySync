@@ -2,6 +2,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { getApiUrl } from '@/app/lib/api';
 
 export interface FolderType {
   _id: string;
@@ -17,49 +18,37 @@ export function useFolders() {
   const router = useRouter();
 
   const refreshFolders = useCallback(async () => {
-    console.log('refreshFolders called, session status:', status);
-    console.log('session user:', session?.user);
-
     if (!session?.user?.id) {
-      console.log('No user session, clearing folders');
       setFoldersState([]);
       return;
     }
     
     try {
-      console.log('Fetching folders for user:', session.user.id);
-      const response = await fetch('/api/folders');
+      const response = await fetch(getApiUrl('/folders'));
       
       if (response.status === 401) {
-        console.log('Unauthorized, redirecting to auth');
         router.push('/auth');
         return;
       }
       
       if (!response.ok) {
-        console.error('Failed to fetch folders:', response.status);
         throw new Error('Failed to fetch folders');
       }
 
       const data = await response.json();
-      console.log('Received folders from API:', data);
-      
       setFoldersState(data);
     } catch (error) {
-      console.error('Error in refreshFolders:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error in refreshFolders:', error);
+      }
       setFoldersState([]);
     }
-  }, [router, status, session]);
+  }, [router, session]);
 
   useEffect(() => {
-    console.log('Session status changed:', status);
-    console.log('Current session:', session);
-
     if (status === 'authenticated' && session?.user?.id) {
-      console.log('Session authenticated, refreshing folders');
       refreshFolders();
     } else if (status === 'unauthenticated') {
-      console.log('Session unauthenticated, clearing folders');
       setFoldersState([]);
     }
   }, [status, session, refreshFolders]);
@@ -68,7 +57,7 @@ export function useFolders() {
     if (!session?.user) throw new Error('Unauthorized');
 
     try {
-      const response = await fetch('/api/folders', {
+      const response = await fetch(getApiUrl('/folders'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

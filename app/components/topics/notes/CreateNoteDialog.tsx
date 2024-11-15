@@ -1,142 +1,167 @@
 'use client'
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/app/components/ui/dialog"
-import { Button } from "@/app/components/ui/button"
-import { Input } from "@/app/components/ui/input"
-import { Label } from "@/app/components/ui/label"
-import { useNotification } from '@/app/hooks/useNotification';
-import { getFolders } from '@/app/actions/folders';
-import { Folder } from '@/app/types';
+import { useState, useEffect } from 'react';
+import styled from 'styled-components';
 
 interface CreateNoteDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (noteData: { title: string; folderId?: string }) => void;
+  onSubmit: (data: { title: string }) => void;
+}
+
+interface AnimationProps {
+  $isClosing: boolean;
+  $isVisible: boolean;
 }
 
 export const CreateNoteDialog = ({ isOpen, onClose, onSubmit }: CreateNoteDialogProps) => {
-  const [isClient, setIsClient] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
   const [title, setTitle] = useState('');
-  const [hasError, setHasError] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const { showNotification } = useNotification();
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [selectedFolder, setSelectedFolder] = useState<string>('');
+  const [error, setError] = useState('');
 
-  // Handle client-side initialization
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  // Reset form state when dialog opens/closes
   useEffect(() => {
     if (isOpen) {
-      setTitle('');
-      setHasError(false);
-      setErrorMessage('');
-      setSelectedFolder('');
+      requestAnimationFrame(() => setIsVisible(true));
     }
   }, [isOpen]);
 
-  // Fetch folders when dialog opens
-  useEffect(() => {
-    const fetchFolders = async () => {
-      if (!isOpen) return;
-      
-      try {
-        const fetchedFolders = await getFolders();
-        setFolders(fetchedFolders);
-        setHasError(false);
-        setErrorMessage('');
-      } catch (err) {
-        console.error('Error fetching folders:', err);
-        setHasError(true);
-        setErrorMessage(err instanceof Error ? err.message : 'Failed to fetch folders');
-      }
-    };
-
-    if (isClient) {
-      fetchFolders();
-    }
-  }, [isOpen, isClient]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) {
-      setHasError(true);
-      setErrorMessage('Please enter a title');
-      return;
-    }
-
-    try {
-      onSubmit({ 
-        title: title.trim(),
-        folderId: selectedFolder || undefined 
-      });
-      showNotification('success', 'Note created successfully');
+  const handleClose = () => {
+    setIsVisible(false);
+    setIsClosing(true);
+    setTimeout(() => {
       onClose();
-    } catch (err) {
-      setHasError(true);
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to create note');
-      showNotification('error', err instanceof Error ? err.message : 'Failed to create note');
-    }
+      setIsClosing(false);
+      setTitle('');
+      setError('');
+    }, 200);
   };
 
-  // Only render dialog on client side
-  if (!isClient) return null;
+  const handleSubmit = () => {
+    if (!title.trim()) {
+      setError('Please enter a title');
+      return;
+    }
+    onSubmit({ title: title.trim() });
+    handleClose();
+  };
+
+  if (!isOpen) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create New Note</DialogTitle>
-        </DialogHeader>
+    <DialogOverlay 
+      onClick={(e) => e.target === e.currentTarget && handleClose()} 
+      $isClosing={isClosing} 
+      $isVisible={isVisible}
+    >
+      <DialogContainer $isClosing={isClosing} $isVisible={isVisible}>
+        <Title>Create New Note</Title>
+        
+        <InputGroup>
+          <Label>Title</Label>
+          <Input
+            type="text"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setError('');
+            }}
+            placeholder="Enter note title"
+            error={!!error}
+          />
+          {error && <ErrorMessage>{error}</ErrorMessage>}
+        </InputGroup>
 
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter note title"
-              />
-              {hasError && (
-                <p className="text-red-500 text-sm mt-2">{errorMessage}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="folder">Folder (Optional)</Label>
-              <select
-                id="folder"
-                value={selectedFolder}
-                onChange={(e) => setSelectedFolder(e.target.value)}
-                className="w-full p-2 border rounded-md"
-              >
-                <option value="">Select a folder</option>
-                {folders.map(folder => (
-                  <option key={folder._id} value={folder._id}>
-                    {folder.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit">
-              Create
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        <CreateButton onClick={handleSubmit}>Create</CreateButton>
+      </DialogContainer>
+    </DialogOverlay>
   );
 };
+
+const DialogOverlay = styled.div<AnimationProps>`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+  ${props => props.$isVisible && `opacity: 1;`}
+`;
+
+const DialogContainer = styled.div<AnimationProps>`
+  background: #2a2a2a;
+  border-radius: 12px;
+  padding: 24px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform 0.3s ease-out, opacity 0.2s ease-out;
+  ${props => props.$isVisible && `
+    transform: translateY(0);
+    opacity: 1;
+  `}
+`;
+
+const Title = styled.h2`
+  margin: 0;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 500;
+`;
+
+const InputGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const Label = styled.label`
+  color: #ffffff;
+  font-size: 14px;
+`;
+
+const Input = styled.input<{ error?: boolean }>`
+  background: #1a1a1a;
+  border: 1px solid ${props => props.error ? '#ef4444' : 'transparent'};
+  border-radius: 8px;
+  padding: 12px;
+  color: #ffffff;
+  font-size: 14px;
+
+  &::placeholder {
+    color: #666666;
+  }
+`;
+
+const ErrorMessage = styled.span`
+  color: #ef4444;
+  font-size: 12px;
+  margin-top: -4px;
+`;
+
+const CreateButton = styled.button`
+  background: #ffffff;
+  color: #000000;
+  border: none;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 8px;
+
+  &:hover {
+    background: #f0f0f0;
+  }
+`;
 
 // ... styled components remain the same ... 

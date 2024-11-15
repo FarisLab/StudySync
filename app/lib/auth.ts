@@ -30,7 +30,15 @@ declare module "next-auth/jwt" {
 }
 
 export const authOptions: NextAuthOptions = {
-  adapter: MongoDBAdapter(clientPromise),
+  adapter: MongoDBAdapter(clientPromise, {
+    databaseName: 'study-sync', // Add your database name
+    collections: {
+      Users: 'users',
+      Accounts: 'accounts',
+      Sessions: 'sessions',
+      VerificationTokens: 'verification_tokens',
+    }
+  }),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,
@@ -47,97 +55,39 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   pages: {
     signIn: '/auth',
+    error: '/auth',
   },
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 30 * 24 * 60 * 60,
   },
   callbacks: {
-    async signIn({ user, account }) {
-      if (!user?.email) {
-        console.error('SignIn Callback - No email provided');
-        return false;
+    async signIn({ account }) {
+      // Allow all Google sign-ins
+      if (account?.provider === 'google') {
+        return true;
       }
-
-      console.log('SignIn Callback:', {
-        userId: user.id,
-        email: user.email,
-        provider: account?.provider
-      });
-      return true;
+      return false;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.id || token.sub;
+        session.user.email = token.email || '';
+        session.user.name = token.name || '';
+        if (token.picture) {
+          session.user.image = token.picture;
+        }
+      }
+      return session;
     },
     async jwt({ token, user }) {
-      // Initial sign in
       if (user) {
-        console.log('JWT Callback - Setting user data:', {
-          userId: user.id,
-          email: user.email
-        });
-        
         token.id = user.id;
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
       }
-
-      // Ensure token has an ID
-      if (!token.id && token.sub) {
-        console.log('JWT Callback - Using sub as ID');
-        token.id = token.sub;
-      }
-
-      console.log('JWT Callback - Final token:', {
-        id: token.id,
-        sub: token.sub,
-        email: token.email
-      });
-
       return token;
-    },
-    async session({ session, token }) {
-      console.log('Session Callback - Input:', {
-        sessionUser: session?.user,
-        token: { id: token.id, sub: token.sub }
-      });
-
-      if (session.user) {
-        // Ensure user ID is set from token
-        session.user.id = token.id || token.sub;
-        // Ensure other user properties are set with fallbacks
-        session.user.email = token.email || '';  // Provide empty string fallback
-        session.user.name = token.name || '';    // Provide empty string fallback
-        if (token.picture) {                     // Only set image if it exists
-          session.user.image = token.picture;
-        }
-
-        console.log('Session Callback - Updated session:', {
-          userId: session.user.id,
-          email: session.user.email
-        });
-      }
-
-      return session;
     }
-  },
-  events: {
-    async signIn(message) {
-      console.log('SignIn Event:', {
-        userId: message.user.id,
-        email: message.user.email
-      });
-    },
-    async createUser(message) {
-      console.log('CreateUser Event:', {
-        userId: message.user.id,
-        email: message.user.email
-      });
-    },
-    async session(message) {
-      console.log('Session Event:', {
-        userId: message.session.user.id,
-        email: message.session.user.email
-      });
-    }
-  },
-  debug: process.env.NODE_ENV === 'development',
+  }
 }; 

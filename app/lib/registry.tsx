@@ -9,13 +9,11 @@ export default function StyledComponentsRegistry({
 }: {
   children: React.ReactNode
 }) {
-  // Only create stylesheet once with lazy initial state
   const [styledComponentsStyleSheet] = useState(() => new ServerStyleSheet())
 
   useServerInsertedHTML(() => {
-    const styles = styledComponentsStyleSheet.getStyleTags()
+    const styles = styledComponentsStyleSheet.getStyleElement()
     styledComponentsStyleSheet.instance.clearTag()
-    // eslint-disable-next-line react/no-danger
     return <>{styles}</>
   })
 

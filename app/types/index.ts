@@ -8,11 +8,11 @@ export interface Space {
 export interface Folder {
   _id: string;
   name: string;
-  theme?: string;
-  icon?: string;
+  theme: string;
+  icon: string;
   userId: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Topic {

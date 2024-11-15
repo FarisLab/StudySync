@@ -11,6 +11,7 @@ export interface MongoDBFolder extends MongoDBDocument {
   theme?: string;
   icon?: string;
   userId: string;
+  parentId?: ObjectId;
 }
 
 export interface MongoDBTopic extends MongoDBDocument {

@@ -89,7 +89,7 @@ export const CreateFolderDialog = ({ onClose, onSubmit }: CreateFolderDialogProp
     onSubmit({ 
       name: name.trim(), 
       theme: theme.toLowerCase(), 
-      icon 
+      icon
     });
     handleClose();
   };

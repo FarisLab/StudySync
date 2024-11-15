@@ -1,16 +1,16 @@
 'use client'
 import React, { useState } from 'react';
 import styled from 'styled-components';
-import { NotesEditor } from './topics/notes/NotesEditor';
+import { NotesEditor } from './notes/NotesEditor';
 import { NoteSpace } from '@/app/types/topics';
 import { useNotification } from '@/app/hooks/useNotification';
 
-interface NotesViewProps {
+interface TopicContentViewProps {
   space: NoteSpace;
   onUpdate?: (spaceId: string, content: Partial<NoteSpace['content']>) => Promise<void>;
 }
 
-export const NotesView = ({ space, onUpdate }: NotesViewProps) => {
+export const TopicContentView = ({ space, onUpdate }: TopicContentViewProps) => {
   const [isSaving, setIsSaving] = useState(false);
   const { showNotification } = useNotification();
 

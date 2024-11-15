@@ -1,96 +1,87 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import { Sidebar, SidebarRef } from '../components/sidebar/Sidebar';
+import { useState, useRef } from 'react';
+import { Sidebar } from '../components/sidebar/Sidebar';
+import { FolderView } from '../components/folders/FolderView';
 import { CreateFolderDialog } from '../components/sidebar/CreateFolderDialog';
-import { FolderView } from '../components/FolderView';
 import { FolderType } from '../hooks/useFolders';
-import { Suspense } from 'react';
+
+interface DashboardState {
+  isClient: boolean;
+  showDialog: boolean;
+  selectedFolder: FolderType | null;
+  isMindFolder: boolean;
+  isExtended: boolean;
+  isHubView: boolean;
+}
+
+interface SidebarRef {
+  handleFolderCreate: (folderData: { name: string; theme: string; icon: string }) => void;
+}
 
 export default function DashboardPage() {
-  // State management
-  const [isClient, setIsClient] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [selectedFolder, setSelectedFolder] = useState<FolderType | null>(null);
-  const [isMindFolder, setIsMindFolder] = useState(false);
-  
-  // Refs and hooks
+  const [state, setState] = useState<DashboardState>({
+    isClient: false,
+    showDialog: false,
+    selectedFolder: null,
+    isMindFolder: false,
+    isExtended: false,
+    isHubView: true
+  });
+
   const sidebarRef = useRef<SidebarRef>(null);
-  const { data: session, status } = useSession();
-  const router = useRouter();
 
-  // Handle client-side initialization
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  // Handle authentication
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/auth');
-    }
-  }, [status, router]);
-
-  // Loading state
-  if (!isClient || status === 'loading') {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div>Loading...</div>
-      </div>
-    );
-  }
-
-  // Unauthenticated state
-  if (!session) {
-    return null;
-  }
-
-  // Event handlers
   const handleFolderCreate = (folderData: { name: string; theme: string; icon: string }) => {
     if (sidebarRef.current) {
       sidebarRef.current.handleFolderCreate(folderData);
     }
-    setShowDialog(false);
+    setState(prevState => ({ ...prevState, showDialog: false }));
   };
 
   const handleFolderSelect = (folder: FolderType | null, isMind: boolean = false) => {
-    setSelectedFolder(folder);
-    setIsMindFolder(isMind);
+    setState(prevState => ({
+      ...prevState,
+      selectedFolder: folder,
+      isMindFolder: isMind,
+      isExtended: !!folder && !isMind,
+      isHubView: true,
+    }));
   };
 
-  // Render
-  return (
-    <div className="flex h-screen">
-      <Suspense fallback={
-        <div className="flex items-center justify-center w-64">
-          Loading sidebar...
-        </div>
-      }>
-        <Sidebar 
-          ref={sidebarRef}
-          onCreateFolder={() => setShowDialog(true)}
-          onFolderSelect={handleFolderSelect}
-        />
-      </Suspense>
+  const handleExtendedChange = (extended: boolean) => {
+    setState(prev => ({ ...prev, isExtended: extended }));
+  };
 
-      <main className="flex-1">
-        <Suspense fallback={
-          <div className="flex items-center justify-center h-full">
-            Loading content...
-          </div>
-        }>
-          <FolderView 
-            folder={selectedFolder}
-            isMindFolder={isMindFolder}
-          />
-        </Suspense>
+  return (
+    <div className="flex min-h-screen bg-[#1A1A1A]">
+      <Sidebar 
+        ref={sidebarRef}
+        onCreateFolder={() => setState(prev => ({ ...prev, showDialog: true }))}
+        onFolderSelect={handleFolderSelect}
+        isExtended={state.isExtended}
+        onExtendedChange={handleExtendedChange}
+      />
+
+      <main 
+        className={`
+          flex-1 
+          transition-all 
+          duration-300 
+          ease-in-out
+          min-w-0
+          ${state.isExtended ? 'ml-[364px]' : 'ml-16'}
+        `}
+      >
+        <FolderView 
+          folder={state.selectedFolder}
+          isMindFolder={state.isMindFolder}
+          isHubView={state.isHubView}
+        />
       </main>
 
-      {isClient && showDialog && (
+      {state.showDialog && (
         <CreateFolderDialog
-          onClose={() => setShowDialog(false)}
+          onClose={() => setState(prev => ({ ...prev, showDialog: false }))}
           onSubmit={handleFolderCreate}
         />
       )}

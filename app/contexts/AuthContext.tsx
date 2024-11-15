@@ -2,18 +2,24 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { User } from 'next-auth';
 
-interface AuthContextType {
+type AuthContextType = {
+  user: User | null;
+  loading: boolean;
   isAuthenticated: boolean;
   logout: () => void;
-}
+};
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  isAuthenticated: false,
+  logout: () => {},
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
-  const router = useRouter();
 
   const logout = async () => {
     await signOut({ redirect: true, callbackUrl: '/auth' });
@@ -21,8 +27,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ 
-      isAuthenticated: !!session, 
-      logout 
+      user: session?.user ?? null,
+      loading: !session,
+      isAuthenticated: !!session,
+      logout
     }}>
       {children}
     </AuthContext.Provider>
